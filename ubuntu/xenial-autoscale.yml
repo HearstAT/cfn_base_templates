@@ -275,6 +275,22 @@ Resources:
             apt-get update && apt-get -y upgrade
             apt-get install -y wget curl python-setuptools python-pip git
 
+            # Install cfn bootstraping tools
+            if [ -z $(command -v cfn-signal) ]; then
+                easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+            fi
+
+            # Helper function to set wait timer
+            error_exit()
+            {
+              /usr/local/bin/cfn-signal -e 1 -r $1 ${WaitHandle}
+              exit 1
+             }
+
+            ####
+            # Scripts and Functions go here
+            ####
+
             # Helper function to set wait timer
             error_exit()
             {

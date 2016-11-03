@@ -64,6 +64,11 @@ Parameters:
     Default: 172.33.10.0/24
     Description: Subnet A CIDR Block
 
+  CIDRB:
+    Type: String
+    Default: 172.33.20.0/24
+    Description: Subnet A CIDR Block
+
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -76,13 +81,14 @@ Metadata:
         - VPC
         - SSHSecurityGroup
         - CIDRA
+        - CIDRB
 
 Mappings:
   RegionMap:
     us-west-2:
-      HVM64: ami-167ba776
+      HVM64: ami-5ec1673e
     eu-west-1:
-      HVM64: ami-844e0bf7
+      HVM64: ami-9398d3e0
 
 Resources:
   # Create the necessary subnets for ELB
@@ -97,6 +103,62 @@ Resources:
         - Name: Public-Subnet-A
         - Application: !Ref AWS::StackId
         - Network: "Public"
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      # Get Availability Zones and select second in string
+      AvailabilityZone: !Select [ 1, !GetAZs "" ]
+      CidrBlock: !Ref CIDRB
+      Tags:
+        - Name: Public-Subnet-B
+        - Application: !Ref AWS::StackId
+        - Network: "Public"
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Setup Ingress/Egress for Server Load Balancer
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: '0'
+        ToPort: '65535'
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Name: ELB-SecurityGroup
+
+  ElasticLoadBalancer:
+    Type: AWS::ElasticLoadBalancing::LoadBalancer
+    Properties:
+      Subnets:
+        - !Ref SubnetA
+        - !Ref SubnetB
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      LBCookieStickinessPolicy:
+        - PolicyName: PublicELBCookieStickinessPolicy
+          CookieExpirationPeriod: '3600'
+      Listeners:
+        - InstancePort: '80'
+          LoadBalancerPort: '80'
+          InstanceProtocol: HTTP
+          Protocol: HTTP
+          PolicyNames:
+            - PublicELBCookieStickinessPolicy
+      HealthCheck:
+        Target: "HTTP:80/humans.txt"
+        HealthyThreshold: '2'
+        UnhealthyThreshold: '10'
+        Interval: '90'
+        Timeout: '60'
+      Tags:
+        - Name: ELB
 
   ServerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -107,7 +169,23 @@ Resources:
         - IpProtocol: tcp
           FromPort: '80'
           ToPort: '80'
-          CidrIp: 0.0.0.0/0
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '443'
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '9090'
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '9090'
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          SourceSecurityGroupId: !Ref SSHSecurityGroup
       SecurityGroupEgress:
         - IpProtocol: tcp
           FromPort: '0'
@@ -151,11 +229,28 @@ Resources:
     Properties:
       Path: "/"
       Roles:
-        -
-          !Ref InstanceRole
+        - !Ref InstanceRole
 
-  Ec2Instance:
-    Type: AWS::EC2::Instance
+  AutoScaleGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AvailabilityZones:
+        - !Select [ 0, !GetAZs "" ]
+        - !Select [ 1, !GetAZs "" ]
+      VPCZoneIdentifier:
+        - !Ref SubnetA
+        - !Ref SubnetB
+      LaunchConfigurationName: !Ref ServerLaunchConfig
+      MinSize: '2'
+      MaxSize: '3'
+      LoadBalancerNames:
+      - !Ref ElasticLoadBalancer
+      Tags:
+      - Name: AutoScale-Group
+        PropagateAtLaunch: 'true'
+
+  ServerLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
       ImageId: !FindInMap [ RegionMap, !Ref "AWS::Region", HVM64 ]
       AssociatePublicIpAddress: 'true'
@@ -170,12 +265,15 @@ Resources:
             VolumeSize: '15'
       IamInstanceProfile: !Ref InstanceProfile
       UserData:
+        # Use sub to treat params and resources like variables http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/intrinsic-function-reference-sub.html
+        # Since sub is being used, cannot use ${} for bash variables, only $VARIABLE won't trigger validation/build errors.
+        "Fn::Base64": !Sub |
             #!/bin/bash -xev
 
             exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
-            apt-get update && apt-get -y upgrade
-            apt-get install -y wget curl python-setuptools python-pip git
+            yum -y upgrade
+            yum install -y wget curl python-setuptools python-pip git
 
             # Install cfn bootstraping tools
             if [ -z $(command -v cfn-signal) ]; then
@@ -193,13 +291,6 @@ Resources:
             # Scripts and Functions go here
             ####
 
-            # Helper function to set wait timer
-            error_exit()
-            {
-              /usr/local/bin/cfn-signal -e 1 -r $1 ${WaitHandle}
-              exit 1
-             }
-
             # All is well so signal success and let CF know wait function is complete
             /usr/local/bin/cfn-signal -e 0 -r 'Server setup complete' ${WaitHandle}
 
@@ -208,7 +299,7 @@ Resources:
     Type: AWS::CloudFormation::WaitConditionHandle
   WaitCondition:
     Type: AWS::CloudFormation::WaitCondition
-    DependsOn: Ec2Instance
+    DependsOn: ServerLaunchConfig
     Properties:
       Handle:  !Ref WaitHandle
       Timeout: '2300'
