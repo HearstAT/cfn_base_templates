@@ -100,9 +100,12 @@ Resources:
       AvailabilityZone: !Select [ 0, !GetAZs "" ]
       CidrBlock: !Ref CIDRA
       Tags:
-        - Name: Public-Subnet-A
-        - Application: !Ref AWS::StackId
-        - Network: "Public"
+        - Key: Name
+          Value: Public-Subnet-A
+        - Key: Application
+          Value: !Ref AWS::StackId
+        - Key: Network
+          Value: "Public"
   SubnetB:
     Type: AWS::EC2::Subnet
     Properties:
@@ -111,9 +114,12 @@ Resources:
       AvailabilityZone: !Select [ 1, !GetAZs "" ]
       CidrBlock: !Ref CIDRB
       Tags:
-        - Name: Public-Subnet-B
-        - Application: !Ref AWS::StackId
-        - Network: "Public"
+        - Key: Name
+          Value: Public-Subnet-B
+        - Key: Application
+          Value: !Ref AWS::StackId
+        - Key: Network
+          Value: "Public"
 
   LoadBalancerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -131,7 +137,8 @@ Resources:
         ToPort: '65535'
         CidrIp: 0.0.0.0/0
       Tags:
-      - Name: ELB-SecurityGroup
+      - Key: Name
+        Value: ELB-SecurityGroup
 
   ElasticLoadBalancer:
     Type: AWS::ElasticLoadBalancing::LoadBalancer
@@ -158,7 +165,8 @@ Resources:
         Interval: '90'
         Timeout: '60'
       Tags:
-        - Name: ELB
+        - Key: Name
+          Value: ELB
 
   ServerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -192,7 +200,8 @@ Resources:
           ToPort: '65535'
           CidrIp: 0.0.0.0/0
       Tags:
-        - Name: Server-Security-Group
+        - Key: Name
+          Value: Server-Security-Group
 
   InstanceRole:
     Type: AWS::IAM::Role
@@ -246,7 +255,8 @@ Resources:
       LoadBalancerNames:
       - !Ref ElasticLoadBalancer
       Tags:
-      - Name: AutoScale-Group
+      - Key: Name
+        Value: AutoScale-Group
         PropagateAtLaunch: 'true'
 
   ServerLaunchConfig:

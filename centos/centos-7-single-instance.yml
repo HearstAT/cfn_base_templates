@@ -94,9 +94,12 @@ Resources:
       AvailabilityZone: !Select [ 0, !GetAZs "" ]
       CidrBlock: !Ref CIDRA
       Tags:
-        - Name: Public-Subnet-A
-        - Application: !Ref AWS::StackId
-        - Network: "Public"
+        - Key: Name
+          Value: Public-Subnet-A
+        - Key: Application
+          Value: !Ref AWS::StackId
+        - Key: Network
+          Value: "Public"
 
   ServerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -114,7 +117,8 @@ Resources:
           ToPort: '65535'
           CidrIp: 0.0.0.0/0
       Tags:
-        - Name: Server-Security-Group
+        - Key: Name
+          Value: Server-Security-Group
 
   InstanceRole:
     Type: AWS::IAM::Role
