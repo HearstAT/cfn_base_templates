@@ -162,12 +162,16 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       ImageId: !FindInMap [ RegionMap, !Ref "AWS::Region", HVM64 ]
-      AssociatePublicIpAddress: 'true'
       InstanceType: !Ref InstanceType
-      SecurityGroups:
-        - !Ref ServerSecurityGroup
-        - !Ref SSHSecurityGroup
       KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref ServerSecurityGroup
+            - !Ref SSHSecurityGroup
+          SubnetId:
+            Ref: SubnetA
       BlockDeviceMappings:
         - DeviceName: "/dev/sda1"
           Ebs:
