@@ -1,7 +1,11 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
-Description: "Xenial - Base Template"
+Description: "Xenial (20161214 AMI Build) - Base Template"
+
 Parameters:
+###############################################################################
+# Instance and Network Configuration
+###############################################################################
   VPC:
     Description: Choose VPC to use
     Type: AWS::EC2::VPC::Id
@@ -80,9 +84,9 @@ Metadata:
 Mappings:
   RegionMap:
     us-west-2:
-      HVM64: ami-167ba776
+      HVM64: ami-b7a114d7
     eu-west-1:
-      HVM64: ami-844e0bf7
+      HVM64: ami-6f587e1c
 
 Resources:
   # Create the necessary subnets for ELB
@@ -178,40 +182,57 @@ Resources:
             VolumeSize: '15'
       IamInstanceProfile: !Ref InstanceProfile
       UserData:
+        "Fn::Base64":
+          "Fn::Sub": |
             #!/bin/bash -xev
 
-            exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+            ##########################################################
+            # Upgrade OS & Install Dependencies
+            ##########################################################
 
             apt-get update && apt-get -y upgrade
             apt-get install -y wget curl python-setuptools python-pip git
 
+            ##########################################################
+            # Global Variable Set
+            ##########################################################
+
+            export DEBIAN_FRONTEND=noninteractive
+            export INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+            export STACKNAME='${AWS::StackName}'
+
+            ##########################################################
             # Install cfn bootstraping tools
+            ##########################################################
+
             if [ -z $(command -v cfn-signal) ]; then
                 easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
             fi
 
+            ##########################################################
             # Helper function to set wait timer
+            ##########################################################
+
             error_exit()
             {
-              /usr/local/bin/cfn-signal -e 1 -r $1 ${WaitHandle}
+              cfn-signal -e 1 -r "$1" "${WaitHandle}"
               exit 1
-             }
+            }
 
-            ####
-            # Scripts and Functions go here
-            ####
+            export -f error_exit
 
-            # Helper function to set wait timer
-            error_exit()
-            {
-              /usr/local/bin/cfn-signal -e 1 -r $1 ${WaitHandle}
-              exit 1
-             }
+            ##########################################################
+            # Send Success Signal to CFN Wait Handle
+            ##########################################################
 
-            # All is well so signal success and let CF know wait function is complete
-            /usr/local/bin/cfn-signal -e 0 -r 'Server setup complete' ${WaitHandle}
+            /usr/local/bin/cfn-signal -e 0 -r 'Server setup complete' "${WaitHandle}"
 
-  # Wait setups to force EC2 instances to now show cloudformation complete until the Userdata (backend cookbook) has completely succesfully
+            ##########################################################
+            # Reboot After Success for all updates made
+            ##########################################################
+
+            reboot
+
   WaitHandle:
     Type: AWS::CloudFormation::WaitConditionHandle
   WaitCondition:

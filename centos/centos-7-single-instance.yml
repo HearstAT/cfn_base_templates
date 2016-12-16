@@ -1,7 +1,11 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
-Description: "CentOS - Base Template"
+Description: "CentOS 7 - Base Template"
+
 Parameters:
+###############################################################################
+# Instance and Network Configuration
+###############################################################################
   VPC:
     Description: Choose VPC to use
     Type: AWS::EC2::VPC::Id
@@ -178,34 +182,60 @@ Resources:
             VolumeSize: '15'
       IamInstanceProfile: !Ref InstanceProfile
       UserData:
-        # Use sub to treat params and resources like variables http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/intrinsic-function-reference-sub.html
-        # Since sub is being used, cannot use ${} for bash variables, only $VARIABLE won't trigger validation/build errors.
-        "Fn::Base64": !Sub |
+        "Fn::Base64":
+          "Fn::Sub": |
             #!/bin/bash -xev
 
-            exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+            ##########################################################
+            # Upgrade OS & Install Dependencies
+            ##########################################################
 
-            yum -y upgrade
-            yum install -y wget curl python-setuptools python-pip git
+            yum -y upgrade && yum install -y wget curl python-setuptools git
 
+            ##########################################################
+            # Global Variable Set
+            ##########################################################
+
+            export INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+            export STACKNAME='${AWS::StackName}'
+
+            ##########################################################
             # Install cfn bootstraping tools
+            ##########################################################
+
             if [ -z $(command -v cfn-signal) ]; then
                 easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
             fi
 
+            ##########################################################
             # Helper function to set wait timer
+            ##########################################################
+
             error_exit()
             {
-              /usr/local/bin/cfn-signal -e 1 -r $1 ${WaitHandle}
+              cfn-signal -e 1 -r "$1" "${WaitHandle}"
               exit 1
-             }
+            }
 
-            ####
+            export -f error_exit
+
+            ##########################################################
             # Scripts and Functions go here
-            ####
+            ##########################################################
 
-            # All is well so signal success and let CF know wait function is complete
-            /usr/local/bin/cfn-signal -e 0 -r 'Server setup complete' ${WaitHandle}
+            ## INSTALL ITEMS
+
+            ##########################################################
+            # Send Success Signal to CFN Wait Handle
+            ##########################################################
+
+            /usr/local/bin/cfn-signal -e 0 -r 'Server setup complete' "${WaitHandle}"
+
+            ##########################################################
+            # Reboot After Success for all updates made
+            ##########################################################
+
+            reboot
 
   # Wait setups to force EC2 instances to now show cloudformation complete until the Userdata (backend cookbook) has completely succesfully
   WaitHandle:
